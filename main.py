@@ -7,7 +7,9 @@ to your channel with improved formatting.
 import asyncio
 import logging
 import re
-from datetime import datetime
+import hashlib
+from datetime import datetime, timedelta
+from collections import deque
 from telethon import TelegramClient, events
 from telethon.tl.types import Message
 from config import (
@@ -40,6 +42,9 @@ class ArbitrageForwarder:
         self.client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
         self.source_channels = SOURCE_CHANNELS  # Now supports multiple channels
         self.target_channel = TARGET_CHANNEL_ID
+        # Deduplicate messages: store hashes of recent messages for 10 minutes
+        self.recent_messages = {}  # {hash: timestamp}
+        self.dedup_window_minutes = 10
         
     async def start(self):
         """Start the bot and begin monitoring."""
@@ -81,6 +86,31 @@ class ArbitrageForwarder:
                 logger.debug("Skipping empty message")
                 return
             
+            # Get message ID for logging
+            msg_id = event.message.id
+            
+            # Get source channel info early for logging
+            chat = await event.get_chat()
+            source_name = chat.title if hasattr(chat, 'title') else chat.username if hasattr(chat, 'username') else 'Unknown'
+            chat_id = chat.id
+            
+            # Clean up old entries from dedup cache (older than 10 minutes)
+            now = datetime.now()
+            cutoff = now - timedelta(minutes=self.dedup_window_minutes)
+            self.recent_messages = {h: t for h, t in self.recent_messages.items() if t > cutoff}
+            
+            # Create hash of message content + message ID for deduplication
+            message_hash = hashlib.md5(f"{chat_id}:{msg_id}:{message_text}".encode()).hexdigest()
+            
+            # Check if we've seen this message recently
+            if message_hash in self.recent_messages:
+                time_ago = (now - self.recent_messages[message_hash]).seconds
+                logger.info(f"⚠ Skipping duplicate from [{source_name}] (ID: {msg_id}, seen {time_ago}s ago)")
+                return
+            
+            # Mark this message as seen
+            self.recent_messages[message_hash] = now
+            
             # Extract URLs from message entities (hidden links)
             full_text = message_text
             if event.message.entities:
@@ -94,10 +124,6 @@ class ArbitrageForwarder:
                 if urls:
                     full_text = message_text + "\n" + "\n".join(urls)
                     logger.debug(f"Extracted {len(urls)} hidden URLs from message entities")
-            
-            # Get source channel info
-            chat = await event.get_chat()
-            source_name = chat.title if hasattr(chat, 'title') else chat.username if hasattr(chat, 'username') else 'Unknown'
             
             # Check if this looks like an arbitrage opportunity (Kalshi + Polymarket)
             if not self.is_arbitrage_message(full_text):
