@@ -34,7 +34,10 @@
 sudo apt update && sudo apt upgrade -y
 
 # Install Python 3 and pip
-sudo apt install python3 python3-pip python3-venv git -y
+sudo apt install python3 python3-pip git -y
+
+# Install python3-venv (version-specific)
+sudo apt install python3.12-venv -y
 
 # Verify installation
 python3 --version
