@@ -32,9 +32,21 @@ if ',' in SOURCE_CHANNEL_ID:
 else:
     SOURCE_CHANNELS = [SOURCE_CHANNEL_ID]
 
+# Convert numeric IDs to integers (Telegram requires this)
+def parse_channel_id(channel_id):
+    """Convert string channel IDs to proper format (int or string)"""
+    channel_id = channel_id.strip()
+    # Check if it's a numeric ID (with or without minus sign)
+    if channel_id.lstrip('-').isdigit():
+        return int(channel_id)
+    return channel_id
+
+SOURCE_CHANNELS = [parse_channel_id(ch) for ch in SOURCE_CHANNELS]
+
 # Target channel: Your channel where formatted messages will be posted
 # You must be admin of this channel with posting rights
 TARGET_CHANNEL_ID = os.getenv('TARGET_CHANNEL_ID', '@your_channel_username')
+TARGET_CHANNEL_ID = parse_channel_id(TARGET_CHANNEL_ID)
 
 # ============================================
 # SESSION CONFIGURATION
