@@ -4,8 +4,11 @@ Formats raw arbitrage messages into clean, professional format for your channel.
 """
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+# Indian Standard Time (UTC+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def extract_date_from_urls(text: str) -> Optional[datetime]:
@@ -167,7 +170,7 @@ def extract_arbitrage_info(text: str) -> dict:
 def create_structured_message(info: dict) -> str:
     """Create a nicely formatted structured message."""
     
-    timestamp = datetime.now().strftime("%H:%M:%S")
+    timestamp = datetime.now(IST).strftime("%H:%M:%S IST")
     
     # Choose emoji based on sport
     sport_emoji = "🏒" if info.get('sport') and 'HOCKEY' in info['sport'].upper() else "⚽" if info.get('sport') and 'SOCCER' in info['sport'].upper() else "🏀" if info.get('sport') and 'BASKETBALL' in info['sport'].upper() else "🎯"
@@ -233,7 +236,6 @@ def create_structured_message(info: dict) -> str:
     
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append(f"⏰ {timestamp}")
     
     return "\n".join(lines)
 
@@ -241,7 +243,7 @@ def create_structured_message(info: dict) -> str:
 def create_enhanced_message(raw_message: str) -> str:
     """Create enhanced version of original message."""
     
-    timestamp = datetime.now().strftime("%H:%M:%S")
+    timestamp = datetime.now(IST).strftime("%H:%M:%S IST")
     
     lines = [
         "🎯 **ARBITRAGE ALERT**",
@@ -249,7 +251,6 @@ def create_enhanced_message(raw_message: str) -> str:
         "",
         raw_message.strip(),
         "",
-        f"⏰ Posted at {timestamp}",
         "━━━━━━━━━━━━━━━━━━━━━━"
     ]
     

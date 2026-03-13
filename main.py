@@ -6,6 +6,7 @@ to your channel with improved formatting.
 
 import asyncio
 import logging
+import logging.handlers
 import re
 import hashlib
 from datetime import datetime, timedelta
@@ -28,7 +29,9 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('bot.log'),
+        logging.handlers.RotatingFileHandler(
+            'bot.log', maxBytes=1*1024*1024, backupCount=2  # Max 1MB, keep 2 backups = 3MB total max
+        ),
         logging.StreamHandler()
     ]
 )
