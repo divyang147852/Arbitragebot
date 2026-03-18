@@ -11,6 +11,84 @@ from typing import Optional
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
+def to_market_cents(value_text: str) -> Optional[int]:
+    """
+    Convert a line value into market cents (0-100).
+
+    Supported inputs:
+    - Decimal odds (e.g., 1.63 -> 61¢)
+    - Probability decimal (e.g., 0.63 -> 63¢)
+    - Cents/integer price (e.g., 63 -> 63¢)
+    - American odds (e.g., +150 -> 40¢, -150 -> 60¢)
+    """
+    try:
+        value = float(value_text)
+    except (TypeError, ValueError):
+        return None
+
+    if value <= 0:
+        return None
+
+    if value_text.strip().startswith(('+', '-')):
+        if value > 0:
+            probability = 100 / (value + 100)
+        else:
+            abs_value = abs(value)
+            probability = abs_value / (abs_value + 100)
+        cents = round(probability * 100)
+        return max(0, min(100, cents))
+
+    if value <= 1:
+        cents = round(value * 100)
+        return max(0, min(100, cents))
+
+    if value < 10:
+        cents = round((1 / value) * 100)
+        return max(0, min(100, cents))
+
+    if value <= 100:
+        cents = round(value)
+        return max(0, min(100, cents))
+
+    return None
+
+
+def calculate_investment_split(
+    line1_cents: Optional[int],
+    line2_cents: Optional[int],
+    total_investment: float = 100.0
+) -> Optional[dict]:
+    """Calculate balanced $ split across two lines for near-equal payout."""
+    if line1_cents is None or line2_cents is None:
+        return None
+
+    line1_price = line1_cents / 100
+    line2_price = line2_cents / 100
+
+    if line1_price <= 0 or line2_price <= 0:
+        return None
+
+    price_sum = line1_price + line2_price
+    if price_sum <= 0:
+        return None
+
+    line1_investment = total_investment * (line1_price / price_sum)
+    line2_investment = total_investment * (line2_price / price_sum)
+
+    payout_if_line1_wins = line1_investment / line1_price
+    payout_if_line2_wins = line2_investment / line2_price
+    guaranteed_payout = min(payout_if_line1_wins, payout_if_line2_wins)
+    guaranteed_profit = guaranteed_payout - total_investment
+
+    return {
+        'total_investment': total_investment,
+        'line1_investment': line1_investment,
+        'line2_investment': line2_investment,
+        'guaranteed_payout': guaranteed_payout,
+        'guaranteed_profit': guaranteed_profit
+    }
+
+
 def extract_date_from_urls(text: str) -> Optional[datetime]:
     """Extract match date from Kalshi or Polymarket URLs."""
     
@@ -139,14 +217,14 @@ def extract_arbitrage_info(text: str) -> dict:
             info['match_date_str'] = match_date.strftime('%B %d, %Y')
     
     # Extract Line 1
-    line1_match = re.search(r'Line\s*1:\s*(.+?)\s*@\s*([\d.]+)\s*-\s*(\w+)', text, re.IGNORECASE)
+    line1_match = re.search(r'Line\s*1:\s*(.+?)\s*@\s*([+-]?[\d.]+)\s*-\s*(\w+)', text, re.IGNORECASE)
     if line1_match:
         info['line1'] = line1_match.group(1).strip()
         info['line1_odds'] = line1_match.group(2).strip()
         info['line1_platform'] = line1_match.group(3).strip()
     
     # Extract Line 2
-    line2_match = re.search(r'Line\s*2:\s*(.+?)\s*@\s*([\d.]+)\s*-\s*(\w+)', text, re.IGNORECASE)
+    line2_match = re.search(r'Line\s*2:\s*(.+?)\s*@\s*([+-]?[\d.]+)\s*-\s*(\w+)', text, re.IGNORECASE)
     if line2_match:
         info['line2'] = line2_match.group(1).strip()
         info['line2_odds'] = line2_match.group(2).strip()
@@ -211,11 +289,17 @@ def create_structured_message(info: dict) -> str:
     lines.append("**📈 Lines:**")
     lines.append("")
     
+    line1_cents = to_market_cents(info.get('line1_odds')) if info.get('line1_odds') else None
+    line2_cents = to_market_cents(info.get('line2_odds')) if info.get('line2_odds') else None
+
     # Line 1
     if info.get('line1'):
         lines.append(f"**Line 1:** {info['line1']}")
         if info.get('line1_odds'):
-            lines.append(f"  └ Odds: **{info['line1_odds']}**")
+            if line1_cents is not None:
+                lines.append(f"  └ Price: **{line1_cents}¢**")
+            else:
+                lines.append(f"  └ Price: **{info['line1_odds']}**")
         if info.get('line1_platform'):
             platform_line = f"  └ Platform: **{info['line1_platform']}**"
             if info.get('line1_link'):
@@ -227,12 +311,24 @@ def create_structured_message(info: dict) -> str:
     if info.get('line2'):
         lines.append(f"**Line 2:** {info['line2']}")
         if info.get('line2_odds'):
-            lines.append(f"  └ Odds: **{info['line2_odds']}**")
+            if line2_cents is not None:
+                lines.append(f"  └ Price: **{line2_cents}¢**")
+            else:
+                lines.append(f"  └ Price: **{info['line2_odds']}**")
         if info.get('line2_platform'):
             platform_line = f"  └ Platform: **{info['line2_platform']}**"
             if info.get('line2_link'):
                 platform_line += f" [🔗 Link]({info['line2_link']})"
             lines.append(platform_line)
+
+    investment_plan = calculate_investment_split(line1_cents, line2_cents, 100.0)
+    if investment_plan:
+        lines.append("")
+        lines.append("**💵 Investment Plan ($100):**")
+        lines.append(f"  └ Line 1: **${investment_plan['line1_investment']:.2f}**")
+        lines.append(f"  └ Line 2: **${investment_plan['line2_investment']:.2f}**")
+        lines.append(f"  └ Guaranteed Payout: **${investment_plan['guaranteed_payout']:.2f}**")
+        lines.append(f"  └ Guaranteed Profit: **${investment_plan['guaranteed_profit']:.2f}**")
     
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

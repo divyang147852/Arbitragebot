@@ -126,7 +126,7 @@ EXCLUDED_KEYWORDS=spam,test
 The bot formats messages with:
 - 🎯 Clear headers and sections
 - 📊 Event/market information
-- 🔹 Platform details with odds
+- 🔹 Platform details with market cents pricing
 - 💰 Profit percentage highlighted
 - 🔗 Clickable links
 - ⏰ Timestamp
@@ -138,8 +138,8 @@ The bot formats messages with:
 
 📊 **Event:** Presidential Election 2024
 
-🔹 **Kalshi** @ 0.45
-🔹 **Polymarket** @ 0.58
+🔹 **Kalshi** @ 45¢
+🔹 **Polymarket** @ 58¢
 
 💰 **Expected Profit:** 3.15%
 
