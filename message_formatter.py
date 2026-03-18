@@ -9,6 +9,7 @@ from typing import Optional
 
 # Indian Standard Time (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
+PROFIT_FORMAT_THRESHOLD = 2.5
 
 
 def to_market_cents(value_text: str) -> Optional[int]:
@@ -143,6 +144,11 @@ def format_arbitrage_message(raw_message: str) -> str:
     # Try to extract key information
     info = extract_arbitrage_info(raw_message)
     
+    profit_percent = info.get('roi') or info.get('profit_percent')
+
+    if profit_percent is None or profit_percent <= PROFIT_FORMAT_THRESHOLD:
+        return raw_message.strip()
+
     if info['structured']:
         # If we successfully parsed the message, use structured format
         return create_structured_message(info)
@@ -259,7 +265,6 @@ def create_structured_message(info: dict) -> str:
     
     lines = [
         f"{sport_emoji} **ARBITRAGE ALERT** {sport_emoji}",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         ""
     ]
     
@@ -331,7 +336,6 @@ def create_structured_message(info: dict) -> str:
         lines.append(f"  └ Guaranteed Profit: **${investment_plan['guaranteed_profit']:.2f}**")
     
     lines.append("")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     return "\n".join(lines)
 
