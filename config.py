@@ -58,7 +58,7 @@ SESSION_NAME = os.getenv('SESSION_NAME', 'arbitrage_forwarder')
 # FILTERING OPTIONS (Optional)
 # ============================================
 # Minimum profit percentage to forward (set to 0 to forward all)
-MIN_PROFIT_THRESHOLD = float(os.getenv('MIN_PROFIT_THRESHOLD', '0'))
+MIN_PROFIT_THRESHOLD = float(os.getenv('MIN_PROFIT_THRESHOLD', '2.5'))
 
 # Keywords that must be present for a message to be forwarded
 REQUIRED_KEYWORDS = os.getenv('REQUIRED_KEYWORDS', '').split(',') if os.getenv('REQUIRED_KEYWORDS') else []

@@ -130,7 +130,7 @@ def extract_date_from_urls(text: str) -> Optional[datetime]:
     return None
 
 
-def format_arbitrage_message(raw_message: str) -> str:
+def format_arbitrage_message(raw_message: str, original_message: Optional[str] = None) -> str:
     """
     Transform raw arbitrage message into a nicely formatted message.
     
@@ -145,9 +145,11 @@ def format_arbitrage_message(raw_message: str) -> str:
     info = extract_arbitrage_info(raw_message)
     
     profit_percent = info.get('roi') or info.get('profit_percent')
+    threshold = globals().get('PROFIT_FORMAT_THRESHOLD', 2.5)
 
-    if profit_percent is None or profit_percent <= PROFIT_FORMAT_THRESHOLD:
-        return raw_message.strip()
+    if profit_percent is None or profit_percent <= threshold:
+        source_message = original_message if original_message is not None else raw_message
+        return source_message.strip()
 
     if info['structured']:
         # If we successfully parsed the message, use structured format

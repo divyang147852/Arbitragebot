@@ -19,7 +19,8 @@ from config import (
     PHONE_NUMBER,
     SOURCE_CHANNELS,
     TARGET_CHANNEL_ID,
-    SESSION_NAME
+    SESSION_NAME,
+    MIN_PROFIT_THRESHOLD
 )
 from message_formatter import format_arbitrage_message
 from date_utils import is_match_within_days, get_match_date_info
@@ -61,9 +62,9 @@ class ArbitrageForwarder:
                 try:
                     source = await self.client.get_entity(channel_id)
                     channel_name = source.title if hasattr(source, 'title') else channel_id
-                    logger.info(f"  ✓ {channel_name} ({channel_id})")
+                    logger.info(f"  [OK] {channel_name} ({channel_id})")
                 except Exception as e:
-                    logger.error(f"  ✗ Cannot access {channel_id}: {e}")
+                    logger.error(f"  [ERR] Cannot access {channel_id}: {e}")
                     logger.error(f"    Make sure you're a member of this channel!")
             
             target = await self.client.get_entity(self.target_channel)
@@ -108,7 +109,7 @@ class ArbitrageForwarder:
             # Check if we've seen this message recently
             if message_hash in self.recent_messages:
                 time_ago = (now - self.recent_messages[message_hash]).seconds
-                logger.info(f"⚠ Skipping duplicate from [{source_name}] (ID: {msg_id}, seen {time_ago}s ago)")
+                logger.info(f"[WARN] Skipping duplicate from [{source_name}] (ID: {msg_id}, seen {time_ago}s ago)")
                 return
             
             # Mark this message as seen
@@ -132,23 +133,35 @@ class ArbitrageForwarder:
             if not self.is_arbitrage_message(full_text):
                 logger.debug(f"Message from [{source_name}] doesn't have both platforms")
                 return
+
+            # Check minimum profit threshold
+            profit_percent = self.extract_profit_percent(full_text)
+            if profit_percent is None:
+                logger.info(f"[SKIP] [{source_name}]: profit percentage not found")
+                return
+
+            if profit_percent <= MIN_PROFIT_THRESHOLD:
+                logger.info(
+                    f"[SKIP] [{source_name}]: profit {profit_percent:.2f}% <= threshold {MIN_PROFIT_THRESHOLD:.2f}%"
+                )
+                return
             
             # Check if match is within 3 days
             date_info = get_match_date_info(full_text)
             
             if not date_info['within_range']:
                 if date_info['date_found']:
-                    logger.info(f"✗ Skipping [{source_name}]: {date_info['reason']} (Date: {date_info['date_str']})")
+                    logger.info(f"[SKIP] [{source_name}]: {date_info['reason']} (Date: {date_info['date_str']})")
                 else:
-                    logger.debug(f"⚠ No date found in message from [{source_name}], posting anyway")
+                    logger.debug(f"[WARN] No date found in message from [{source_name}], posting anyway")
             
             # Only post if within 3 days (or no date found)
             if date_info['within_range']:
                 date_str = f" (Match: {date_info['date_str']})" if date_info['date_found'] else " (Date unknown)"
-                logger.info(f"✓ Detected valid arbitrage from [{source_name}]{date_str}")
+                logger.info(f"[OK] Detected valid arbitrage from [{source_name}]{date_str}")
                 
                 # Format the message (use full_text which includes extracted URLs)
-                formatted_message = format_arbitrage_message(full_text)
+                formatted_message = format_arbitrage_message(full_text, original_message=message_text)
                 
                 # Post to target channel
                 await self.client.send_message(
@@ -158,7 +171,7 @@ class ArbitrageForwarder:
                     link_preview=False
                 )
                 
-                logger.info(f"✓ Posted to target channel")
+                logger.info(f"[OK] Posted to target channel")
                 
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
@@ -175,18 +188,30 @@ class ArbitrageForwarder:
         has_polymarket = 'polymarket' in text_lower
         
         if has_kalshi and has_polymarket:
-            logger.debug("✓ Message contains BOTH Kalshi and Polymarket")
+            logger.debug("[OK] Message contains BOTH Kalshi and Polymarket")
             return True
         
         # Log what's missing
         if has_kalshi and not has_polymarket:
-            logger.debug("✗ Skipping: Has Kalshi but missing Polymarket")
+            logger.debug("[SKIP] Has Kalshi but missing Polymarket")
         elif has_polymarket and not has_kalshi:
-            logger.debug("✗ Skipping: Has Polymarket but missing Kalshi")
+            logger.debug("[SKIP] Has Polymarket but missing Kalshi")
         else:
-            logger.debug("✗ Skipping: Missing both platforms")
+            logger.debug("[SKIP] Missing both platforms")
         
         return False
+
+    def extract_profit_percent(self, text: str):
+        """Extract profit percentage from message text."""
+        roi_match = re.search(r'ROI:\s*(\d+\.?\d*)\s*%', text, re.IGNORECASE)
+        if roi_match:
+            return float(roi_match.group(1))
+
+        percent_match = re.search(r'(\d+\.?\d*)\s*%', text)
+        if percent_match:
+            return float(percent_match.group(1))
+
+        return None
 
 
 async def main():
