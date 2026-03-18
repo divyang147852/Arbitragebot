@@ -154,7 +154,8 @@ class ArbitrageForwarder:
                 await self.client.send_message(
                     self.target_channel,
                     formatted_message,
-                    parse_mode='markdown'
+                    parse_mode='markdown',
+                    link_preview=False
                 )
                 
                 logger.info(f"✓ Posted to target channel")
