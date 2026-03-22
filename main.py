@@ -163,6 +163,11 @@ class ArbitrageForwarder:
                 # Format the message (use full_text which includes extracted URLs)
                 formatted_message = format_arbitrage_message(full_text, original_message=message_text)
                 
+                # Skip posting if guaranteed profit is negative
+                if formatted_message is None:
+                    logger.info(f"[SKIP] [{source_name}]: guaranteed profit is negative")
+                    return
+                
                 # Post to target channel
                 await self.client.send_message(
                     self.target_channel,

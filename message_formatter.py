@@ -164,15 +164,16 @@ def extract_date_from_urls(text: str) -> Optional[datetime]:
     return None
 
 
-def format_arbitrage_message(raw_message: str, original_message: Optional[str] = None) -> str:
+def format_arbitrage_message(raw_message: str, original_message: Optional[str] = None) -> Optional[str]:
     """
     Transform raw arbitrage message into a nicely formatted message.
     
     Args:
         raw_message: Original message text from source channel
+        original_message: Original unmodified message text
         
     Returns:
-        Formatted message ready to post
+        Formatted message ready to post, or None if guaranteed profit is negative
     """
     
     # Try to extract key information
@@ -182,14 +183,27 @@ def format_arbitrage_message(raw_message: str, original_message: Optional[str] =
     line2_cents = to_market_cents(info.get('line2_odds')) if info.get('line2_odds') else None
     computed_roi = calculate_guaranteed_roi_percent(line1_cents, line2_cents)
 
-    profit_percent = computed_roi if computed_roi is not None else (info.get('roi') or info.get('profit_percent'))
+    # Prioritize human-provided ROI; only use computed ROI if positive and no human ROI given
+    human_roi = info.get('roi') or info.get('profit_percent')
+    if human_roi is not None:
+        profit_percent = human_roi
+    elif computed_roi is not None and computed_roi > 0:
+        profit_percent = computed_roi
+    else:
+        profit_percent = None
+    
     threshold = globals().get('PROFIT_FORMAT_THRESHOLD', 2.5)
 
+    # Don't post if ROI is too low
     if profit_percent is None or profit_percent <= threshold:
         source_message = original_message if original_message is not None else raw_message
         return source_message.strip()
 
+    # Check for negative guaranteed profit - skip posting if negative
     if info['structured']:
+        investment_plan = calculate_investment_split(line1_cents, line2_cents, 100.0)
+        if investment_plan and investment_plan['guaranteed_profit'] < 0:
+            return None  # Don't post messages with negative guaranteed profit
         # If we successfully parsed the message, use structured format
         return create_structured_message(info)
     else:
@@ -305,8 +319,9 @@ def create_structured_message(info: dict) -> str:
     line2_decimal_odds = cents_to_decimal_odds(line2_cents)
     computed_roi = calculate_guaranteed_roi_percent(line1_cents, line2_cents)
 
-    # Choose profit emoji
-    roi = computed_roi if computed_roi is not None else (info.get('roi') or info.get('profit_percent') or 0)
+    # Prioritize human-provided ROI; only use computed if positive and no human ROI given
+    human_roi = info.get('roi') or info.get('profit_percent')
+    roi = human_roi if human_roi is not None else (computed_roi if computed_roi is not None and computed_roi > 0 else 0)
     profit_emoji = "💰" if roi >= 2 else "💵"
     
     lines = [
@@ -370,7 +385,7 @@ def create_structured_message(info: dict) -> str:
             lines.append(platform_line)
 
     investment_plan = calculate_investment_split(line1_cents, line2_cents, 100.0)
-    if investment_plan and investment_plan['guaranteed_profit'] > 0:
+    if investment_plan:
         lines.append("")
         header_amount = format_investment_amount(investment_plan['total_investment'])
         lines.append(f"**💵 Investment Plan ({header_amount}):**")
@@ -378,9 +393,6 @@ def create_structured_message(info: dict) -> str:
         lines.append(f"  └ Line 2: **{format_investment_amount(investment_plan['line2_investment'])}**")
         lines.append(f"  └ Guaranteed Payout: **{format_investment_amount(investment_plan['guaranteed_payout'])}**")
         lines.append(f"  └ Guaranteed Profit: **{format_investment_amount(investment_plan['guaranteed_profit'])}**")
-    elif line1_cents is not None and line2_cents is not None:
-        lines.append("")
-        lines.append("⚠️ Listed prices do not produce a guaranteed-profit arbitrage.")
     
     lines.append("")
     
