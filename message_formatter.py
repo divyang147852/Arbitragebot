@@ -7,6 +7,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from config import INVESTMENT_DISPLAY_UNIT
+
 # Indian Standard Time (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
 PROFIT_FORMAT_THRESHOLD = 2.5
@@ -90,6 +92,38 @@ def calculate_investment_split(
     }
 
 
+def calculate_guaranteed_roi_percent(
+    line1_cents: Optional[int],
+    line2_cents: Optional[int]
+) -> Optional[float]:
+    """Calculate guaranteed ROI % from two complementary market prices."""
+    if line1_cents is None or line2_cents is None:
+        return None
+
+    line1_price = line1_cents / 100
+    line2_price = line2_cents / 100
+    price_sum = line1_price + line2_price
+
+    if line1_price <= 0 or line2_price <= 0 or price_sum <= 0:
+        return None
+
+    return ((1 / price_sum) - 1) * 100
+
+
+def cents_to_decimal_odds(cents: Optional[int]) -> Optional[float]:
+    """Convert market cents to decimal odds."""
+    if cents is None or cents <= 0:
+        return None
+    return 100 / cents
+
+
+def format_investment_amount(amount_dollars: float) -> str:
+    """Format investment amount based on configured display unit."""
+    if INVESTMENT_DISPLAY_UNIT == 'cents':
+        return f"{round(amount_dollars * 100)}¢"
+    return f"${amount_dollars:.2f}"
+
+
 def extract_date_from_urls(text: str) -> Optional[datetime]:
     """Extract match date from Kalshi or Polymarket URLs."""
     
@@ -144,7 +178,11 @@ def format_arbitrage_message(raw_message: str, original_message: Optional[str] =
     # Try to extract key information
     info = extract_arbitrage_info(raw_message)
     
-    profit_percent = info.get('roi') or info.get('profit_percent')
+    line1_cents = to_market_cents(info.get('line1_odds')) if info.get('line1_odds') else None
+    line2_cents = to_market_cents(info.get('line2_odds')) if info.get('line2_odds') else None
+    computed_roi = calculate_guaranteed_roi_percent(line1_cents, line2_cents)
+
+    profit_percent = computed_roi if computed_roi is not None else (info.get('roi') or info.get('profit_percent'))
     threshold = globals().get('PROFIT_FORMAT_THRESHOLD', 2.5)
 
     if profit_percent is None or profit_percent <= threshold:
@@ -261,8 +299,14 @@ def create_structured_message(info: dict) -> str:
     # Choose emoji based on sport
     sport_emoji = "🏒" if info.get('sport') and 'HOCKEY' in info['sport'].upper() else "⚽" if info.get('sport') and 'SOCCER' in info['sport'].upper() else "🏀" if info.get('sport') and 'BASKETBALL' in info['sport'].upper() else "🎯"
     
+    line1_cents = to_market_cents(info.get('line1_odds')) if info.get('line1_odds') else None
+    line2_cents = to_market_cents(info.get('line2_odds')) if info.get('line2_odds') else None
+    line1_decimal_odds = cents_to_decimal_odds(line1_cents)
+    line2_decimal_odds = cents_to_decimal_odds(line2_cents)
+    computed_roi = calculate_guaranteed_roi_percent(line1_cents, line2_cents)
+
     # Choose profit emoji
-    roi = info.get('roi') or info.get('profit_percent') or 0
+    roi = computed_roi if computed_roi is not None else (info.get('roi') or info.get('profit_percent') or 0)
     profit_emoji = "💰" if roi >= 2 else "💵"
     
     lines = [
@@ -296,17 +340,14 @@ def create_structured_message(info: dict) -> str:
     lines.append("**📈 Lines:**")
     lines.append("")
     
-    line1_cents = to_market_cents(info.get('line1_odds')) if info.get('line1_odds') else None
-    line2_cents = to_market_cents(info.get('line2_odds')) if info.get('line2_odds') else None
-
     # Line 1
     if info.get('line1'):
         lines.append(f"**Line 1:** {info['line1']}")
         if info.get('line1_odds'):
-            if line1_cents is not None:
-                lines.append(f"  └ Price: **{line1_cents}¢**")
+            if line1_decimal_odds is not None:
+                lines.append(f"  └ Odds: **{line1_decimal_odds:.2f}**")
             else:
-                lines.append(f"  └ Price: **{info['line1_odds']}**")
+                lines.append(f"  └ Odds: **{info['line1_odds']}**")
         if info.get('line1_platform'):
             platform_line = f"  └ Platform: **{info['line1_platform']}**"
             if info.get('line1_link'):
@@ -318,10 +359,10 @@ def create_structured_message(info: dict) -> str:
     if info.get('line2'):
         lines.append(f"**Line 2:** {info['line2']}")
         if info.get('line2_odds'):
-            if line2_cents is not None:
-                lines.append(f"  └ Price: **{line2_cents}¢**")
+            if line2_decimal_odds is not None:
+                lines.append(f"  └ Odds: **{line2_decimal_odds:.2f}**")
             else:
-                lines.append(f"  └ Price: **{info['line2_odds']}**")
+                lines.append(f"  └ Odds: **{info['line2_odds']}**")
         if info.get('line2_platform'):
             platform_line = f"  └ Platform: **{info['line2_platform']}**"
             if info.get('line2_link'):
@@ -329,13 +370,17 @@ def create_structured_message(info: dict) -> str:
             lines.append(platform_line)
 
     investment_plan = calculate_investment_split(line1_cents, line2_cents, 100.0)
-    if investment_plan:
+    if investment_plan and investment_plan['guaranteed_profit'] > 0:
         lines.append("")
-        lines.append("**💵 Investment Plan ($100):**")
-        lines.append(f"  └ Line 1: **${investment_plan['line1_investment']:.2f}**")
-        lines.append(f"  └ Line 2: **${investment_plan['line2_investment']:.2f}**")
-        lines.append(f"  └ Guaranteed Payout: **${investment_plan['guaranteed_payout']:.2f}**")
-        lines.append(f"  └ Guaranteed Profit: **${investment_plan['guaranteed_profit']:.2f}**")
+        header_amount = format_investment_amount(investment_plan['total_investment'])
+        lines.append(f"**💵 Investment Plan ({header_amount}):**")
+        lines.append(f"  └ Line 1: **{format_investment_amount(investment_plan['line1_investment'])}**")
+        lines.append(f"  └ Line 2: **{format_investment_amount(investment_plan['line2_investment'])}**")
+        lines.append(f"  └ Guaranteed Payout: **{format_investment_amount(investment_plan['guaranteed_payout'])}**")
+        lines.append(f"  └ Guaranteed Profit: **{format_investment_amount(investment_plan['guaranteed_profit'])}**")
+    elif line1_cents is not None and line2_cents is not None:
+        lines.append("")
+        lines.append("⚠️ Listed prices do not produce a guaranteed-profit arbitrage.")
     
     lines.append("")
     

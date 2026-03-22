@@ -60,6 +60,11 @@ SESSION_NAME = os.getenv('SESSION_NAME', 'arbitrage_forwarder')
 # Minimum profit percentage to forward (set to 0 to forward all)
 MIN_PROFIT_THRESHOLD = float(os.getenv('MIN_PROFIT_THRESHOLD', '2.5'))
 
+# Investment plan display unit in formatted messages: 'dollars' or 'cents'
+INVESTMENT_DISPLAY_UNIT = os.getenv('INVESTMENT_DISPLAY_UNIT', 'dollars').strip().lower()
+if INVESTMENT_DISPLAY_UNIT not in ('dollars', 'cents'):
+    INVESTMENT_DISPLAY_UNIT = 'dollars'
+
 # Keywords that must be present for a message to be forwarded
 REQUIRED_KEYWORDS = os.getenv('REQUIRED_KEYWORDS', '').split(',') if os.getenv('REQUIRED_KEYWORDS') else []
 
